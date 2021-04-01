@@ -30,7 +30,16 @@ here only application and controller package using http server*/
 // }
 //other way of getting json data alternate to unmarshal func
 //above can be commented out, shouldbind json doing same underhood as above
-func CreateUser(c *gin.Context) {
+
+func getUserId(userIdParam string) (int64, *errors.RestErr) {
+	userId, useErr := strconv.ParseInt(userIdParam, 10, 64)
+	if useErr != nil {
+		return 0, errors.NewBadRequestError("user id should be a number")
+
+	}
+	return userId, nil
+}
+func Create(c *gin.Context) {
 	var user users.User
 	fmt.Println(user)
 	if err := c.ShouldBindJSON(&user); err != nil {
@@ -41,7 +50,7 @@ func CreateUser(c *gin.Context) {
 	}
 	//saving in database
 	//controller is no incharge of databse, it all take care by services
-	result, saveErr := services.CreateUser(user)
+	result, saveErr := services.UsersService.CreateUser(user)
 	if saveErr != nil {
 		c.JSON(saveErr.Status, saveErr)
 		return
@@ -50,22 +59,80 @@ func CreateUser(c *gin.Context) {
 	//fmt.Println(err)
 	//fmt.Println(string(bytes))
 	//c.String(http.StatusNotImplemented, "Implement me!")
-	c.JSON(http.StatusCreated, result)
+	c.JSON(http.StatusCreated, result.Marshall(c.GetHeader("X-Public") == "true"))
 }
 
-func GetUser(c *gin.Context) {
-	userId, useErr := strconv.ParseInt(c.Param("user_id"), 10, 64)
-	if useErr != nil {
-		err := errors.NewBadRequestError("user id should be a number")
-		c.JSON(err.Status, err)
+func Get(c *gin.Context) {
+	userId, idErr := getUserId(c.Param("user_id"))
+	if idErr != nil {
+		c.JSON(idErr.Status, idErr)
+		return
 	}
-
-	user, getErr := services.GetUser(userId)
+	user, getErr := services.UsersService.GetUser(userId)
 	if getErr != nil {
 		c.JSON(getErr.Status, getErr)
 		return
 	}
 	//c.String(http.StatusNotImplemented, "Implement me!")
-	c.JSON(http.StatusOK, user)
+	//if true then its public request otherwise private request
+	c.JSON(http.StatusOK, user.Marshall(c.GetHeader("X-Public") == "true"))
+
+}
+
+func Update(c *gin.Context) {
+	userId, idErr := getUserId(c.Param("user_id"))
+	if idErr != nil {
+		c.JSON(idErr.Status, idErr)
+		return
+	}
+
+	var user users.User
+	if err := c.ShouldBindJSON(&user); err != nil {
+		restErr := errors.NewBadRequestError("invalid json body")
+		c.JSON(restErr.Status, restErr)
+		return
+	}
+	user.Id = userId
+
+	isPartial := c.Request.Method == http.MethodPatch
+	result, err := services.UsersService.UpdateUser(isPartial, user)
+	if err != nil {
+		c.JSON(err.Status, err)
+		return
+	}
+	c.JSON(http.StatusOK, result.Marshall(c.GetHeader("X-Public") == "true"))
+}
+
+func Delete(c *gin.Context) {
+	userId, idErr := getUserId(c.Param("user_id"))
+	if idErr != nil {
+		c.JSON(idErr.Status, idErr)
+		return
+	}
+	if err := services.UsersService.DeleteUser(userId); err != nil {
+		c.JSON(err.Status, err)
+		return
+	}
+	c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func Search(c *gin.Context) {
+	status := c.Query("status")
+	users, err := services.UsersService.SearchUser(status)
+	if err != nil {
+		c.JSON(err.Status, err)
+		return
+	}
+	c.JSON(http.StatusOK, users.Marshall(c.GetHeader("X-Public") == "true"))
+
+	/*1st approach, if we have single end point that takes slice of user then
+	can use below code but problem arise when you have more endpoint returning a list
+	of users then you need to copy below code everytime for all endpoint so its better
+	to turn it into function and call everytime */
+
+	// result := make([]interface{}, len(users))
+	// for index, user := range users{
+	// 	result[index] = user.Marshall(c.GetHeader("X-Public") == "true")
+	// }
 
 }
